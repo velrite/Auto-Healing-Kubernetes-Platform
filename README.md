@@ -1,160 +1,182 @@
 # Auto-Healing Kubernetes Platform
 
-A production-grade Kubernetes platform designed around failure as a
-first-class concern — not an afterthought.
+> A production-grade Kubernetes platform built around failure as a first-class concern — not an afterthought.
 
-> **Environment note:** Built and tested on Minikube via GitHub Codespaces.
-> The architecture, failure-handling patterns, and automation logic are
-> directly portable to managed Kubernetes (EKS/AKS/GKE). Real-cloud
-> deployment is the next phase — see Project 5 (Multi-Cloud Production
-> Platform).
+**Author:** Olamide Olalekan — Platform & DevSecOps Engineer
+**GitHub:** [github.com/velrite](https://github.com/velrite)
+**LinkedIn:** [linkedin.com/in/olamide-olalekan-12138a265](https://linkedin.com/in/olamide-olalekan-12138a265)
+**Email:** velrite.tech@gmail.com
 
-## Problem Statement
+---
+
+## The Problem This Solves
 
 Most infrastructure is built to work under ideal conditions.
 Production is not ideal.
 
-Production means node loss, traffic spikes, bad deployments,
-and cloud costs that grow faster than engineering output.
+Production means node loss at 3am, traffic spikes during a product launch,
+a developer pushing a broken image tag, and cloud costs that silently grow
+faster than engineering output.
 
-This platform is designed around those conditions from day one.
+This platform is built around those four conditions from day one.
+Every component exists because of a specific failure mode it prevents.
 
-## Cluster
+---
 
-- 3-node Minikube cluster — Kubernetes v1.31.0
-- prod-sim — control plane
-- prod-sim-m02 — worker node
-- prod-sim-m03 — worker node
+## Proven Results
 
-## What This Platform Does
+| Test | Outcome | Measured Time | Human Intervention |
+|------|---------|--------------|-------------------|
+| Node failure recovery | ✅ SLO MET | **20 seconds** | Zero |
+| Bad deployment rollback | ✅ SLO MET | **32 seconds** | Zero |
+| HPA traffic spike | ✅ PASSED | 2 → 8 pods at 86% CPU | Zero |
+| Vault secret rotation | ✅ PASSED | Zero downtime | Zero |
 
-**Automated Failure Recovery**
-- Detects node failure and reschedules pods automatically
-- No manual intervention required for single node loss
-- Reconciliation loop corrects actual vs desired state continuously
-- Recovery validated: 20 seconds
+> All results captured from real terminal output. Nothing simulated.
+> See [docs/TESTING_AND_VALIDATION.md](docs/TESTING_AND_VALIDATION.md) for full command output.
 
-**Horizontal Pod Autoscaling**
-- HPA configured on api-service (CPU threshold 60%, memory 70%)
-- HPA configured on frontend (CPU threshold 65%)
-- Scales from minimum 2 pods to maximum 8 pods automatically
-- Load tested with synthetic traffic and validated end to end
+---
 
-**Deployment Safety**
-- 5-stage GitHub Actions CI/CD pipeline with enforced quality gates
-- Canary deployments with traffic splitting
-- Automated rollback triggered by pod readiness failure
-- Zero static credentials via HashiCorp Vault dynamic secrets
+## Architecture at a Glance
 
-**Observability**
-- Golden Signals monitored per service
-- 36 Prometheus alert rules focused on SLO-impacting conditions
-- Alerting before issues become incidents
+```
+                        ┌─────────────────────────────┐
+                        │   GitHub Actions CI/CD       │
+                        │  validate → canary → rollback│
+                        │  → production (48s pipeline) │
+                        └────────────┬────────────────┘
+                                     │
+                        ┌────────────▼────────────────┐
+                        │   Minikube Cluster (3 nodes) │
+                        │   Kubernetes v1.31.0         │
+                        │                              │
+                        │  ┌──────────────────────┐   │
+                        │  │ namespace: microservices│  │
+                        │  │  api-service (HPA 2-8) │  │
+                        │  │  frontend    (HPA 2-6) │  │
+                        │  │  postgres-db           │  │
+                        │  └──────────────────────┘   │
+                        │                              │
+                        │  ┌──────────────────────┐   │
+                        │  │ namespace: monitoring  │  │
+                        │  │  Prometheus (36 rules) │  │
+                        │  │  Grafana (Golden Sig.) │  │
+                        │  │  Alertmanager          │  │
+                        │  └──────────────────────┘   │
+                        │                              │
+                        │  ┌──────────────────────┐   │
+                        │  │ namespace: vault       │  │
+                        │  │  HashiCorp Vault       │  │
+                        │  │  Dynamic KV secrets    │  │
+                        │  └──────────────────────┘   │
+                        │                              │
+                        │  ┌──────────────────────┐   │
+                        │  │ namespace: opencost    │  │
+                        │  │  Cost per namespace    │  │
+                        │  │  Cost per service      │  │
+                        │  └──────────────────────┘   │
+                        └─────────────────────────────┘
+```
 
-**Cost Visibility (FinOps)**
-- Per-namespace and per-service cost breakdown via OpenCost
-- Cost labels applied per service, team, and environment
-- Real cost data confirmed via API
+---
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| Container Orchestration | Kubernetes v1.31.0 |
-| Environment | GitHub Codespaces (Minikube) |
-| CI/CD | GitHub Actions |
-| Secrets Management | HashiCorp Vault |
-| Monitoring | Prometheus + Grafana |
-| Cost Visibility | OpenCost |
-| Progressive Delivery | HPA + Canary Deployments |
+| Layer | Technology | Why |
+|-------|------------|-----|
+| Container Orchestration | Kubernetes v1.31.0 | Industry standard. Reconciliation loops handle failure automatically. |
+| Local Cluster | Minikube (3 nodes) | Free. Identical behavior to production k8s. |
+| CI/CD | GitHub Actions | Already where the code lives. 2000 free minutes/month. |
+| Secrets Management | HashiCorp Vault | Dynamic credentials. No static passwords anywhere. |
+| Monitoring | Prometheus + Grafana | Industry standard. 36 alert rules. Golden Signals dashboard. |
+| Cost Visibility | OpenCost | Real-time cost per service. Free and open source. |
+| Environment | GitHub Codespaces | Free 60hrs/month. 8GB RAM. No local setup required. |
 
-## Failure Scenarios Tested
+---
 
-| Scenario | Result | Numbers |
-|----------|--------|---------|
-| Node failure | SLO MET | Recovered in 20 seconds. Zero human intervention. |
-| Bad deployment | SLO MET | Rollback in 32 seconds. Blast radius zero. |
-| Traffic spike HPA | PASSED | Scaled from 2 to 8 pods. CPU hit 86%. Auto scale down after load. |
-| Secret rotation | PASSED | Version 1 to Version 2 rotated. App running throughout. Zero downtime. |
+## Quick Start — Running This Yourself
 
-## Test Results
+### Prerequisites
+- GitHub Codespace (or Ubuntu machine with 8GB+ RAM)
+- kubectl, helm, minikube installed
 
-### Node Failure Recovery
-- Node killed: prod-sim-m02
-- Pods rescheduled to: prod-sim-m03 automatically
-- Recovery time: 20 seconds
-- Human intervention required: zero
-- Status: SLO MET
+### Start the cluster
+```bash
+sudo nohup dockerd &
+sleep 10
+minikube start --profile=prod-sim --nodes=3 \
+  --driver=docker --cpus=2 --memory=2000mb \
+  --kubernetes-version=v1.31.0 --force
+kubectl get nodes
+```
 
-### Bad Deployment Rollback
-- Bad image injected: kennethreitz/httpbin:this-tag-does-not-exist
-- Old pods kept serving traffic throughout
-- Blast radius: 0 pods affected
-- Rollback time: 32 seconds
-- Method: kubectl rollout undo — previous ReplicaSet promoted
-- Status: SLO MET
+### Deploy everything
+```bash
+kubectl create namespace microservices
+kubectl create secret generic postgres-secret \
+  --from-literal=POSTGRES_PASSWORD=apppassword \
+  --from-literal=POSTGRES_USER=appuser \
+  --from-literal=POSTGRES_DB=appdb \
+  -n microservices
+kubectl apply -f manifests/
+kubectl apply -f database.yaml
+kubectl get pods -n microservices
+```
 
-### HPA Traffic Spike Test
-- Load generators: 3 parallel busybox pods generating synthetic load
-- Pod count before load: 2 pods, CPU 4%
-- Peak pod count during load: 8 pods, CPU 86%
-- Scale up triggered at: CPU above 60% threshold
-- Scale down: automatic after load removed, CPU dropped to 2%
-- Final pod count after scale down: 2 pods
-- Status: PASSED — zero human intervention
+### Run the break-it tests
+See [docs/RUNBOOK.md](docs/RUNBOOK.md) for step-by-step test commands.
 
-### Vault Secret Rotation Test
-- Secrets engine: HashiCorp Vault KV v2
-- Initial secret: version 1 written successfully
-- Rotation: version 2 written with new credentials
-- App pods during rotation: all Running, zero restarts
-- Zero downtime: confirmed
-- Status: PASSED
+---
 
-## CI/CD Pipeline Stages
+## Documentation
 
-1. Validate — Manifest validation and quality gates
-2. Deploy Canary — Single pod canary deployment
-3. Validate Canary — Health check and readiness verification
-4. Rollback — Automatic rollback on readiness failure
-5. Deploy Production — Full promotion if canary passes
+| Document | What It Covers |
+|----------|---------------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full system design, components, reconciliation model |
+| [TESTING_AND_VALIDATION.md](docs/TESTING_AND_VALIDATION.md) | All 4 tests with real command output and numbers |
+| [SECURITY.md](docs/SECURITY.md) | Vault setup, zero static credentials, git hygiene |
+| [INCIDENTS.md](docs/INCIDENTS.md) | Real failures during the build — root cause and fix |
+| [ADR.md](docs/ADR.md) | Every architectural decision with alternatives rejected |
+| [RUNBOOK.md](docs/RUNBOOK.md) | How to start, operate, and test the platform |
+| [GAPS.md](docs/GAPS.md) | What was not built and what building it would require |
+| [CAPACITY_AND_COST.md](docs/CAPACITY_AND_COST.md) | Resource usage, cost data, FinOps results |
 
-## Engineering Challenges Encountered
+---
 
-**Docker proxy missing in Codespaces**
-Minikube requires docker-proxy to map ports but GitHub Codespaces
-ships with moby-engine instead of docker-ce — the binary did not
-exist. Extracted it manually from the docker-ce package without
-installing the full package due to conflicts with existing components.
-Undocumented edge case that took significant time to resolve.
+## CI/CD Pipeline
 
-**Memory constraints under full stack**
-8GB RAM is insufficient when running a 3-node cluster, Prometheus,
-Grafana, Vault, OpenCost, and a CI/CD pipeline simultaneously.
-Grafana crashed mid-test due to memory limits. Required scaling down
-components during installation then restoring full stack. Resource
-management became the real engineering challenge inside the project.
+```
+Push to main
+  └── validate        — kubectl dry-run all manifests
+  └── deploy-canary   — 1 pod with new image
+  └── validate-canary — restart count check over 5 min
+  └── rollback        — fires on_failure, reverts ReplicaSet
+  └── deploy-production — fires on_success, full rollout
+```
 
-**Git history rewrite**
-Accidentally committed large binaries — kubectl, minikube, vault —
-to the repository. GitHub rejected the push. Rewrote entire git
-history three times using filter-branch to remove them. Now
-.gitignore is the first file created on every new project.
+Pipeline completes in ~48 seconds.
+Every stage must pass before the next runs.
+Rollback is automatic — no human required.
 
-## Key Engineering Insight
+[SCREENSHOT: GitHub Actions showing all 5 stages green with timing]
 
-Kubernetes self-healing is not magic. It is reconciliation loops
-running constantly at every layer of the stack.
+---
 
-The control plane does not detect failure and decide to act.
-It simply keeps asking: does actual state match desired state?
-When the answer is no — it corrects.
+## The Key Insight
 
-That single mental model explains HPA, rollbacks, readiness probes,
-and node recovery. Same loop. Different levels.
+Kubernetes self-healing is not magic. It is one loop running constantly:
 
-## Author
+```
+Does actual state match desired state?
+  YES → do nothing
+  NO  → correct it
+```
 
-Olamide Olalekan — Platform and DevSecOps Engineer
-LinkedIn: https://linkedin.com/in/olamide-olalekan-12138a265
-GitHub: https://github.com/velrite
+That loop runs at every layer simultaneously:
+- Kubernetes reconciles pods to match Deployments
+- HPA reconciles replica count to match CPU thresholds
+- ArgoCD (Project 3) reconciles cluster state to match Git
+
+Same pattern. Different levels. Understanding this one thing
+makes every other Kubernetes behavior predictable.
+
