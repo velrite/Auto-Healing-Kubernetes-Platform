@@ -1,117 +1,80 @@
 # Architecture Decision Records
 
-Every significant decision with context, alternatives rejected,
-trade-off accepted, and what would change the decision.
-
 ---
 
 ## ADR-001 — Minikube over kind
 
-**Context:**
-Needed a local multi-node Kubernetes cluster for development and testing.
+Context: needed a local multi-node Kubernetes cluster.
 
-**Decision:** Minikube with Docker driver, 3 nodes.
+Decision: Minikube with Docker driver, 3 nodes.
 
-**Alternatives rejected:**
-- **kind** — lighter and faster startup. Would have had the same docker-proxy
-  issue in Codespaces. Better addon support in Minikube made it preferable
-  for this project (metrics-server, ingress-nginx, dashboard all available
-  as built-in addons).
-- **k3s** — excellent for single-node. Multi-node setup requires k3sup or
-  manual configuration. More operational overhead than Minikube for this use case.
+Alternatives rejected:
+- kind — lighter and faster. Same docker-proxy issue would occur.
+  Minikube has better addon support (metrics-server, ingress, dashboard)
+  reducing manual setup.
+- k3s — single-node by default. Multi-node needs k3sup. More overhead.
 
-**Trade-off accepted:**
-Minikube is heavier than kind. Startup takes 3-5 minutes vs 30 seconds for kind.
-8GB RAM gets tight running full stack. Acceptable because addon ecosystem
-reduces manual setup significantly.
-
-**What would revisit this:**
-A machine with 16GB+ RAM. kind would be preferable for faster iteration.
+Trade-off: Minikube is heavier. 3-5 minute startup vs 30 seconds for kind.
+Acceptable because addon ecosystem reduces configuration significantly.
 
 ---
 
 ## ADR-002 — OpenCost over Kubecost
 
-**Context:**
-Needed real-time cost visibility per namespace and service.
+Context: needed cost visibility per namespace and service.
 
-**Decision:** OpenCost.
+Decision: OpenCost.
 
-**Alternatives rejected:**
-- **Kubecost** — three installation attempts all failed with permission denied
-  on /var/configs in the Codespace security context. Also deploys its own
-  bundled Prometheus which conflicted with the existing Prometheus installation
-  and exhausted available memory.
+Alternatives rejected:
+- Kubecost — three installation attempts all failed with permission denied
+  on /var/configs. Also deploys bundled Prometheus which conflicted with
+  existing Prometheus and exhausted memory.
 
-**Trade-off accepted:**
-OpenCost has less UI polish than Kubecost. The web dashboard is simpler.
-For this project the cost API returning real JSON data was sufficient proof.
-The underlying cost model is identical — OpenCost is the upstream that
-Kubecost is built on.
-
-**What would revisit this:**
-Kubecost on a real cloud cluster with full node permissions and dedicated
-monitoring infrastructure.
+Trade-off: OpenCost has simpler UI. Cost API returns raw JSON rather
+than formatted dashboard views. Sufficient for proving cost visibility.
 
 ---
 
 ## ADR-003 — GitHub Actions over GitLab CI
 
-**Context:**
-Needed a CI/CD pipeline for deployment automation and validation.
+Context: needed a CI/CD pipeline.
 
-**Decision:** GitHub Actions.
+Decision: GitHub Actions.
 
-**Alternatives rejected:**
-- **GitLab CI** — requires creating a separate GitLab account, setting up
-  a new project, and connecting the external cluster. Additional account
-  management overhead with no technical advantage for this use case.
+Alternatives rejected:
+- GitLab CI — requires separate account, separate project, connecting
+  external cluster. Additional overhead with no technical advantage.
 
-**Trade-off accepted:**
-GitHub Actions free tier (2000 minutes/month on public repos) is sufficient.
-Pipeline runs in approximately 48 seconds. No additional account required.
+Trade-off: GitHub Actions free tier is 2000 minutes/month on public repos.
+Pipeline runs in ~48 seconds. No additional account required.
 
 ---
 
-## ADR-004 — Vault Dev Mode over Standalone Mode
+## ADR-004 — Vault Dev Mode over Standalone
 
-**Context:**
-Needed secrets management to eliminate static credentials.
+Context: needed secrets management without static credentials.
 
-**Decision:** Vault dev mode with root token.
+Decision: Vault dev mode, root token.
 
-**Alternatives rejected:**
-- **Vault standalone mode with file storage** — requires manual init and unseal
-  on every Minikube restart. Would add 3 manual commands to every session startup.
-  State is lost on restart regardless — file storage on a non-persistent
-  Codespace volume behaves the same as dev mode in practice.
+Alternatives rejected:
+- Standalone with file storage — requires manual init and unseal on every
+  Minikube restart. State is lost on restart anyway on non-persistent
+  Codespace volume. Dev mode and standalone behave identically in practice.
 
-**Trade-off accepted:**
-Dev mode is explicitly not for production. Root token is not a production pattern.
-Acceptable for demonstrating dynamic secrets concepts in a demo environment where
-the cluster is rebuilt regularly anyway.
-
-**What would revisit this:**
-Vault on a persistent cluster with Vault Agent Injector for automatic
-secret injection into pod filesystems without application code changes.
+Trade-off: dev mode is not for production. Root token is not a production
+pattern. Acceptable for demonstrating dynamic secrets concepts.
 
 ---
 
 ## ADR-005 — Canary via CI over Argo Rollouts
 
-**Context:**
-Needed progressive delivery with automatic rollback.
+Context: needed progressive delivery with automatic rollback.
 
-**Decision:** Canary logic implemented in GitHub Actions pipeline.
+Decision: canary logic in GitHub Actions pipeline.
 
-**Alternatives rejected:**
-- **Argo Rollouts** — installed in Project 3 (GitOps platform). For this project,
-  implementing canary in the CI pipeline demonstrates understanding of the
-  underlying mechanism without the additional complexity of Argo Rollouts CRDs.
+Alternatives rejected:
+- Argo Rollouts — implemented in Project 3. For this project, CI-based
+  canary demonstrates the underlying mechanism without additional CRD complexity.
 
-**Trade-off accepted:**
-CI-based canary is less sophisticated than Argo Rollouts.
-No traffic splitting by percentage. No SLO-based promotion.
-Rollback is based on restart count rather than error rate.
-Acceptable for demonstrating the canary concept at this stage.
-
+Trade-off: CI canary has no traffic splitting by percentage. Rollback is
+restart-count based rather than error-rate based. Acceptable for this stage.

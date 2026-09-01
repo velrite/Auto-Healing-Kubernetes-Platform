@@ -1,12 +1,10 @@
 # Security
 
-## Secrets Management
+## No Static Credentials
 
-### What Was Done
-HashiCorp Vault deployed in vault namespace.
-No static credentials stored in any YAML file committed to Git.
+No passwords stored in any YAML file committed to Git.
 
-**postgres-secret:** Created via kubectl command, not stored in any file:
+postgres-secret created via kubectl — not stored in any file:
 ```bash
 kubectl create secret generic postgres-secret \
   --from-literal=POSTGRES_PASSWORD=apppassword \
@@ -15,58 +13,53 @@ kubectl create secret generic postgres-secret \
   -n microservices
 ```
 
-**Proof of zero exposed credentials:**
+Proof:
 ```bash
 kubectl describe pod -l app=api-service -n microservices | grep -i password
-# Returns nothing — zero credentials visible
+# Returns nothing
 ```
 
-[SCREENSHOT: kubectl describe pod output showing no password fields]
+---
 
-### Vault KV v2
-Secret versioning enabled. Rotation tested and validated.
-Previous version retained — rollback to previous secret without redeployment.
+## Vault Dynamic Secrets
+
+### Database secrets engine
+- api-service-role configured with 1h TTL
+- Every credential request generates a unique username and password
+- Credentials expire automatically after 1 hour
+- Revoking a lease immediately invalidates the credential
+
+### KV v2
+- Version history maintained
+- Rotation does not require pod restart
+- Previous version available for rollback
+
+### Vault initialization
+- 5 key shares generated, threshold of 3 required to unseal
+- vault-init.json immediately added to .gitignore after generation
+- Never committed to Git
 
 ---
 
 ## Git Security
 
-### .gitignore
-```
-*.tfstate
-*.tfstate.backup
-*.tfvars
-.terraform/
-vault-init.json
-*.zip
-nohup.out
-kubectl
-minikube-linux-amd64
-vault_1.15.0_linux_amd64.zip
-```
+.gitignore excludes:
+- vault-init.json
+- *.tfstate and *.tfstate.backup
+- *.tfvars
+- Large binaries — kubectl, minikube, vault zip
 
-### Incident — Binaries Committed to Git
-Large binaries were accidentally committed during the build.
-Git history was rewritten three times using filter-branch.
-See [INCIDENTS.md](INCIDENTS.md#incident-3--git-history-contaminated-with-large-binaries).
+Git history was rewritten 3 times using filter-branch to remove
+accidentally committed binaries. See [INCIDENTS.md](INCIDENTS.md).
 
 ---
 
-## Network Security
+## What Is Not Secured
 
-- Pods communicate within cluster using cluster-internal DNS
-- No external exposure except frontend NodePort on port 30421
-- api-service exposed only as ClusterIP — not reachable externally
-- postgres-db exposed only as ClusterIP — database not externally accessible
+- No NetworkPolicies — all pods can reach each other within cluster
+- No Pod Security Standards enforcement
+- No image signing
+- No admission controller beyond default Kubernetes
 
----
-
-## What Is Not Secured (Documented Gaps)
-
-- No NetworkPolicies applied — all pods can reach all other pods within cluster
-- No Pod Security Standards enforced — pods can run as root
-- No image signing or verification
-- No admission controller restricting image sources
-
-See [GAPS.md](GAPS.md) for what building these properly would require.
-
+These are documented gaps — not silent omissions.
+See [GAPS.md](GAPS.md) for what building them would require.

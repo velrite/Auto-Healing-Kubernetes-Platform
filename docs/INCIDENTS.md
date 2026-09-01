@@ -1,30 +1,25 @@
 # Incidents
 
-Real problems encountered during this build.
-Every entry follows: What Happened → Root Cause → Fix → Prevention.
-Nothing hypothetical.
+Real problems encountered. What happened, root cause, fix, prevention.
 
 ---
 
 ## Incident 1 — Docker Proxy Binary Missing
 
-**What happened:**
-Minikube failed to start with:
+### What happened
 ```
-error forwarding port: fork/exec /usr/libexec/docker/docker-proxy: no such file or directory
+error forwarding port: fork/exec
+/usr/libexec/docker/docker-proxy: no such file or directory
 ```
+Minikube would not start.
 
-Spent significant time attempting various Docker reinstallation approaches
-before identifying the actual root cause.
-
-**Root cause:**
-GitHub Codespaces ships with moby-engine — Microsoft's Docker fork.
+### Root cause
+GitHub Codespaces ships moby-engine, not docker-ce.
 moby-engine does not include docker-proxy.
-Minikube expects docker-proxy at /usr/libexec/docker/docker-proxy to map
-container ports for the Kubernetes API server.
-This is not documented anywhere in Minikube's official troubleshooting guide.
+Minikube requires it to map container ports for the API server.
+Not documented in Minikube troubleshooting guide.
 
-**Fix:**
+### Fix
 ```bash
 cd /tmp
 apt download docker-ce
@@ -32,153 +27,112 @@ dpkg -x docker-ce_*.deb docker-extract
 sudo mkdir -p /usr/libexec/docker
 sudo cp docker-extract/usr/bin/docker-proxy /usr/libexec/docker/
 sudo chmod +x /usr/libexec/docker/docker-proxy
-minikube start --profile=prod-sim --force
 ```
 
-**Prevention:**
-Added to runbook as first step on any new Codespace.
-Must be done before minikube start.
+### Prevention
+Added as first step in runbook. Must run before minikube start
+on any new Codespace.
 
 ---
 
 ## Incident 2 — Memory Exhaustion Under Full Stack
 
-**What happened:**
-Grafana kept crashing with CrashLoopBackOff during Kubecost installation.
-Free memory reported:
-```
-Mem: 7.8Gi total, 5.4Gi used, 195Mi free
-```
-
-Helm install timed out. Cluster API server became unresponsive.
+### What happened
+Grafana crashed repeatedly with CrashLoopBackOff.
+Free memory: 131MB.
 kubectl commands started returning connection refused.
+Helm install timed out.
 
-**Root cause:**
-8GB Codespace RAM is insufficient when running simultaneously:
-- 3-node Minikube cluster
-- Prometheus + Grafana + Alertmanager
-- HashiCorp Vault
-- Kubecost (additional Prometheus instance)
+### Root cause
+8GB RAM with 3-node cluster, Prometheus, Grafana, Vault, and
+Kubecost (which bundles its own Prometheus) simultaneously
+exceeded available memory.
 
-Kubecost deploys its own bundled Prometheus which conflicted with
-the existing Prometheus installation and exhausted available memory.
-
-**Fix:**
-1. Switched from Kubecost to OpenCost (lighter, no bundled Prometheus)
-2. Scaled down non-critical components before installing new tools:
+### Fix
+Switched from Kubecost to OpenCost — no bundled Prometheus.
+Scaled down non-critical components before installing new tools:
 ```bash
 kubectl scale deployment prometheus-grafana -n monitoring --replicas=0
 kubectl scale deployment prometheus-kube-state-metrics -n monitoring --replicas=0
 ```
-3. Installed new component
-4. Scaled everything back up
 
-**Prevention:**
+### Prevention
 Run `free -h` before any new Helm install.
-Available memory should be above 2GB before proceeding.
-Prefer tools that integrate with existing Prometheus over tools
+Prefer tools that integrate with existing Prometheus over those
 that bundle their own.
 
 ---
 
 ## Incident 3 — Git History Contaminated with Large Binaries
 
-**What happened:**
-git push rejected by GitHub three separate times:
+### What happened
 ```
 remote: error: File minikube-linux-amd64 is 128.64 MB;
 this exceeds GitHub file size limit of 100.00 MB
-remote: error: File kubectl is 56.75 MB;
-this is larger than GitHub recommended maximum of 50.00 MB
 ```
+Push rejected. Happened three separate times with different binaries.
 
-**Root cause:**
-`git add .` picked up binary files sitting in the project directory:
-- kubectl (53.7 MB)
-- minikube-linux-amd64 (128.64 MB)
-- vault_1.15.0_linux_amd64.zip (128.06 MB)
+### Root cause
+`git add .` picked up kubectl (53.7MB), minikube (128.64MB), and
+vault zip (128.06MB) sitting in the project directory.
 
-These were downloaded to the project directory during tool installation
-and not excluded from git tracking before the first commit.
-
-**Fix — required three separate rewrites:**
+### Fix
 ```bash
 git filter-branch --force --index-filter \
-  "git rm --cached --ignore-unmatch kubectl kubectl.sha256 \
-   minikube-linux-amd64 nohup.out vault_1.15.0_linux_amd64.zip" \
+  "git rm --cached --ignore-unmatch kubectl minikube-linux-amd64 \
+   vault_1.15.0_linux_amd64.zip nohup.out" \
   --prune-empty --tag-name-filter cat -- --all
 git push origin main --force
 ```
 
-Also used git-filter-repo to scrub a hardcoded password from history:
-```bash
-git filter-repo --replace-text <(echo "admin123secure==>REDACTED") --force
-git push origin main --force
-```
-
-**Prevention:**
-.gitignore is now the first file created on every new project.
-Never run `git add .` without first checking `git status` output.
-Download tools to /tmp or /usr/local/bin, not the project directory.
+### Prevention
+.gitignore is now the first file created on every project.
+Tools downloaded to /tmp or /usr/local/bin, not project directory.
 
 ---
 
 ## Incident 4 — Kubecost Permission Denied
 
-**What happened:**
-Kubecost cost-analyzer pod crashed repeatedly with:
+### What happened
 ```
 ERR AllocationReportFileStore: error creating file store:
 open /var/configs/reports.json: permission denied
-ERR Store[1h]: NewETLStore: error creating storage:
 mkdir /var/configs/db: permission denied
 panic: runtime error: invalid memory address or nil pointer dereference
 ```
 
-**Root cause:**
-Kubecost requires write access to /var/configs which is restricted
-by the Codespace container security context. The container cannot
-write to this path without elevated privileges.
+### Root cause
+Kubecost requires write access to /var/configs.
+Codespace container security context restricts this.
+Three install attempts all failed.
 
-**Fix:**
-Switched to OpenCost — the open source upstream that Kubecost is based on.
-OpenCost does not have the same storage permission requirements.
-OpenCost confirmed working — real cost data returned via API.
+### Fix
+Switched to OpenCost — open source upstream Kubecost is built on.
+No storage permission requirements. Confirmed working with real data.
 
-**Prevention:**
-For Minikube/Codespace environments, prefer OpenCost over Kubecost.
-Kubecost requires either privileged containers or a custom security
-context that may not be available in restricted environments.
+### Prevention
+For Minikube and Codespace environments use OpenCost.
+Kubecost needs privileged containers or custom security context.
 
 ---
 
 ## Incident 5 — HPA Showing Unknown Metrics
 
-**What happened:**
-First HPA load test showed:
+### What happened
 ```
-NAME              TARGETS                REPLICAS
-api-service-hpa   cpu: <unknown>/60%     2
+api-service-hpa   cpu: <unknown>/60%   REPLICAS: 2
 ```
-CPU was unknown so HPA could not scale. Load generators ran but
-pod count never changed.
+Load generators ran. Pod count never changed.
 
-**Root cause:**
-metrics-server addon was not enabled in Minikube.
-Without metrics-server, HPA has no CPU data to act on.
+### Root cause
+metrics-server addon not enabled. HPA had no CPU data to act on.
 
-**Fix:**
+### Fix
 ```bash
 minikube addons enable metrics-server --profile=prod-sim
 # Wait 90 seconds
 kubectl top pods -n microservices
-# Confirmed real CPU numbers
 ```
 
-Second test run produced correct CPU percentages and HPA scaled
-from 2 to 8 pods at 86% CPU utilization.
-
-**Prevention:**
-Enable metrics-server as part of cluster setup, before any HPA testing.
-Add to runbook under prerequisites.
-
+### Prevention
+Enable metrics-server during cluster setup before any HPA testing.
