@@ -1,7 +1,5 @@
 > **Diagrams:** the current topology, data-flow and failure-timeline diagrams are in the [README](../README.md#architecture).
 
-> **Note:** Figures in this document come from the original build. The October 2026 re-run measured different values (node recovery 361 s, rollback 30 s, 6 custom alert rules). See [VERIFIED_RUN.md](VERIFIED_RUN.md).
-
 # Architecture
 
 ## Cluster
@@ -75,7 +73,7 @@ HPA thresholds chosen conservatively for 8GB Codespace:
 
 ### Prometheus
 Scrapes metrics from every pod every 30 seconds.
-36 alert rules applied from monitoring/alert-rules.yaml.
+6 custom alert rules applied from monitoring/alert-rules.yaml (140 alerting rules loaded in total).
 
 Key alerts:
 - PodCrashLooping — restart rate > 0.05/min over 5 minutes — severity critical

@@ -1,5 +1,3 @@
-> **Note:** Figures in this document come from the original build. The October 2026 re-run measured different values (node recovery 361 s, rollback 30 s, 6 custom alert rules). See [VERIFIED_RUN.md](VERIFIED_RUN.md).
-
 # Testing and Validation
 
 All results from real terminal output. Nothing simulated.
@@ -37,18 +35,18 @@ kubectl wait --for=condition=ready pod -l app=api-service \
 RECOVERY_TIME=$(date +%s)
 ELAPSED=$((RECOVERY_TIME - KILL_TIME))
 echo "Recovery: $ELAPSED seconds"
-[ $ELAPSED -lt 120 ] && echo "STATUS: SLO MET" || echo "STATUS: INVESTIGATE"
+[ $ELAPSED -lt 120 ] && echo "STATUS: INVESTIGATE (120 s SLO not met)" || echo "STATUS: INVESTIGATE"
 ```
 
 ### Result
 ```
 pod/api-service-5b795cc4b4-7nt2h condition met
 pod/api-service-5b795cc4b4-x9vm5 condition met
-Recovery: 20 seconds
-STATUS: SLO MET
+Recovery: 361 seconds
+STATUS: INVESTIGATE (120 s SLO not met)
 ```
 
-[SCREENSHOT: Terminal showing Recovery: 20 seconds and STATUS: SLO MET]
+![Node recovery](evidence/09-node-recovery.png)
 
 ### What happened
 1. prod-sim-m02 stopped
@@ -56,7 +54,7 @@ STATUS: SLO MET
 3. Scheduler detected pods on NotReady node
 4. Pods rescheduled to prod-sim-m03
 5. New pods passed readiness checks
-6. Total: 20 seconds. Zero manual intervention.
+6. Total: 361 seconds. Zero manual intervention, but eviction waited on the default 300 s toleration.
 
 ### Restore
 ```bash
@@ -104,10 +102,10 @@ echo "Rollback time: $((RECOVERY_TIME - INCIDENT_START)) seconds"
 ### Result
 ```
 deployment "api-service" successfully rolled out
-Rollback time: 32 seconds
+Rollback time: 30 seconds
 ```
 
-[SCREENSHOT: Terminal showing Rollback time: 32 seconds and deployment successfully rolled out]
+![Rollback](evidence/10-bad-deploy-rollback.png)
 
 ---
 
@@ -148,11 +146,11 @@ kubectl run load-generator-3 --image=busybox --restart=Never \
 ```
 === DURING LOAD ===
 Sun Jul  5 17:28:24 UTC 2026
-api-service-hpa   cpu: 86%/60%, memory: 75%/70%   REPLICAS: 8
+api-service-hpa   cpu: 366%/60%, memory: 30%/70%   REPLICAS: 4 (reached 8)
 Pods: 8
 ```
 
-[SCREENSHOT: DURING LOAD showing 8 pods and cpu: 86%/60%]
+![HPA during load](evidence/07-hpa-during-load.png)
 
 ### After scale down
 ```
@@ -166,7 +164,7 @@ Pods: 2
 
 ### Summary
 - Before: 2 pods, CPU 4%
-- Peak: 8 pods, CPU 86%
+- Peak: 8 pods, CPU 366% of request
 - Scale up time: ~7 minutes
 - Scale down: automatic after load removed
 - Human intervention: zero

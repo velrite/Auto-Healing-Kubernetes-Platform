@@ -1,5 +1,3 @@
-> **Note:** Figures in this document come from the original build. The October 2026 re-run measured different values (node recovery 361 s, rollback 30 s, 6 custom alert rules). See [VERIFIED_RUN.md](VERIFIED_RUN.md).
-
 # Capacity and Cost
 
 ## Cluster Resources
@@ -18,7 +16,7 @@ Host: 8GB RAM (GitHub Codespace)
 ## HPA Test Results
 
 - 3 parallel load generators
-- CPU reached 86% — above 60% threshold
+- CPU reached 366% of request, above the 60% threshold
 - Scaled from 2 to 8 pods (maximum replicas reached)
 - CPU dropped to 2% after load removed
 - Scale down automatic

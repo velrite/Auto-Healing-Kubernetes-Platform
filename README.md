@@ -37,8 +37,6 @@ Measured on a fresh rebuild in October 2026. Full detail: [docs/VERIFIED_RUN.md]
 | CI pipeline | Workflow file not in this repo | **Not re-verified** |
 
 
-![OpenCost returning real per-pod cost from the allocation API](docs/evidence/14-opencost-data.png)
-*OpenCost returning real per-pod cost from the allocation API*
 
 ## What was built
 | Area | Components |
@@ -47,6 +45,8 @@ Measured on a fresh rebuild in October 2026. Full detail: [docs/VERIFIED_RUN.md]
 | Monitoring (`monitoring`) | Prometheus, Alertmanager, Grafana (Golden Signals dashboard), 6 custom alert rules |
 | Secrets (`vault`) | HashiCorp Vault in dev mode, Kubernetes auth, database secrets engine, KV v2 |
 | FinOps (`opencost`) | OpenCost with `team`, `cost-center`, `environment` labels on all deployments |
+
+<p align="center"><img src="docs/evidence/14-opencost-data.png" width="760" alt="OpenCost returning real per-pod cost from the allocation API"><br><em>OpenCost returning real per-pod cost from the allocation API</em></p>
 
 ## Architecture
 
@@ -69,6 +69,12 @@ flowchart TB
   CPC --> K2
 ```
 Each node is a Docker container on one machine, so this models Kubernetes behaviour, not multi-machine failure domains. Three nodes let one worker be lost while another remains to take the pods.
+
+<p align="center"><img src="docs/evidence/01-cluster-nodes.png" width="760" alt="Three nodes Ready on Kubernetes v1.31.0"><br><em>Three nodes Ready on Kubernetes v1.31.0</em></p>
+
+<p align="center"><img src="docs/evidence/02-namespaces.png" width="760" alt="Four platform namespaces Active"><br><em>Four platform namespaces Active</em></p>
+
+<p align="center"><img src="docs/evidence/03-all-pods-running.png" width="760" alt="All platform pods Running"><br><em>All platform pods Running</em></p>
 
 ### 2. Namespaces and data flow
 ```mermaid
@@ -103,18 +109,12 @@ No application currently reads Vault credentials. Vault proves dynamic credentia
 
 ### 3. Node failure timeline
 ```mermaid
-sequenceDiagram
-  participant N as Worker m02
-  participant NC as Node controller
-  participant P as Pods on m02
-  participant S as Scheduler
-  N->>N: Stopped (t = 0)
-  NC->>NC: No heartbeat, about 40 s grace period
-  NC->>P: Node NotReady, not-ready taint applied
-  Note over P: Pods tolerate the taint for 300 s by default
-  NC->>P: Evict after toleration expires (about 340 s)
-  S->>S: Reschedule on surviving worker
-  S-->>P: New pods Ready (measured 361 s)
+flowchart TB
+  A["t = 0: worker m02 stopped"] --> B["about 40 s: node controller marks the node NotReady"]
+  B --> C["not-ready taint applied: pods tolerate it for 300 s by default"]
+  C --> D["about 340 s: toleration expires, pods are evicted"]
+  D --> E["Scheduler places replacements on the surviving worker"]
+  E --> F["New pods Ready: 361 s measured"]
 ```
 The timings are Kubernetes defaults and match the measured 361 s. Lowering `tolerationSeconds` on the deployments is the fix and is listed under Known gaps.
 
@@ -165,18 +165,11 @@ Dashed means not re-verified. The workflow file is not in this repository, and t
 
 Full decision records: [docs/ADR.md](docs/ADR.md)
 
-Three nodes are used so a worker can be lost while another remains to take the pods. With one node, a node failure is a total outage and the test would prove nothing.
-
-![Three nodes Ready on Kubernetes v1.31.0](docs/evidence/01-cluster-nodes.png)
-*Three nodes Ready on Kubernetes v1.31.0*
 
 
-![Four platform namespaces Active](docs/evidence/02-namespaces.png)
-*Four platform namespaces Active*
 
 
-![All platform pods Running](docs/evidence/03-all-pods-running.png)
-*All platform pods Running*
+
 
 
 ## Failure engineering
@@ -190,8 +183,7 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - **Limit:** one run, no repeated trials. An earlier 20 s figure in this project's history was not reproduced.
 - **Next step:** lower `tolerationSeconds` for `node.kubernetes.io/not-ready` and `unreachable` on the deployments, then re-test.
 
-![Node stopped; pods rescheduled after 361 s, so the 120 s target was missed](docs/evidence/09-node-recovery.png)
-*Node stopped; pods rescheduled after 361 s, so the 120 s target was missed*
+<p align="center"><img src="docs/evidence/09-node-recovery.png" width="760" alt="Node stopped; pods rescheduled after 361 s, so the 120 s target was missed"><br><em>Node stopped; pods rescheduled after 361 s, so the 120 s target was missed</em></p>
 
 
 ### Bad deployment
@@ -201,8 +193,7 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - **Measured:** **30 s** from the bad image to a completed rollback. That includes a deliberate 30 s wait before running `kubectl rollout undo`.
 - **Limit:** the rollback was **issued by hand**. The test proves containment (zero blast radius), not automatic rollback.
 
-![Bad image stuck in ErrImagePull while 2 old pods kept serving; rollback in 30 s](docs/evidence/10-bad-deploy-rollback.png)
-*Bad image stuck in ErrImagePull while 2 old pods kept serving; rollback in 30 s*
+<p align="center"><img src="docs/evidence/10-bad-deploy-rollback.png" width="760" alt="Bad image stuck in ErrImagePull while 2 old pods kept serving; rollback in 30 s"><br><em>Bad image stuck in ErrImagePull while 2 old pods kept serving; rollback in 30 s</em></p>
 
 
 ### HPA traffic spike
@@ -212,37 +203,30 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - **Fix needed:** at the default memory request, memory stayed above the 70% target and held the HPA at 8 replicas even with CPU at 2%. The api-service memory request was raised to 128Mi (limit 256Mi). This is applied by `scripts/revive.sh` but is **not yet in `manifests/api-service.yaml`**.
 - **Limit:** the load is synthetic and uniform.
 
-![HPA targets: api-service 2-8, frontend 2-6](docs/evidence/04-hpa-config.png)
-*HPA targets: api-service 2-8, frontend 2-6*
+<p align="center"><img src="docs/evidence/04-hpa-config.png" width="760" alt="HPA targets: api-service 2-8, frontend 2-6"><br><em>HPA targets: api-service 2-8, frontend 2-6</em></p>
 
 
-![Baseline: 2 replicas, low CPU](docs/evidence/06-hpa-before-load.png)
-*Baseline: 2 replicas, low CPU*
+<p align="center"><img src="docs/evidence/06-hpa-before-load.png" width="760" alt="Baseline: 2 replicas, low CPU"><br><em>Baseline: 2 replicas, low CPU</em></p>
 
 
-![Under load: CPU far above target, replicas scaled up](docs/evidence/07-hpa-during-load.png)
-*Under load: CPU far above target, replicas scaled up*
+<p align="center"><img src="docs/evidence/07-hpa-during-load.png" width="760" alt="Under load: CPU far above target, replicas scaled up"><br><em>Under load: CPU far above target, replicas scaled up</em></p>
 
 
-![After load removed: back to 2 replicas with no manual scaling](docs/evidence/08-hpa-scale-down.png)
-*After load removed: back to 2 replicas with no manual scaling*
+<p align="center"><img src="docs/evidence/08-hpa-scale-down.png" width="760" alt="After load removed: back to 2 replicas with no manual scaling"><br><em>After load removed: back to 2 replicas with no manual scaling</em></p>
 
 
 ## Security
 - **No credentials in pod descriptions.** `kubectl describe pod | grep -i password` returns nothing for api-service. postgres-db references `postgres-secret` by key only.
 
-![No password value in the pod description](docs/evidence/11-zero-credentials.png)
-*No password value in the pod description*
+<p align="center"><img src="docs/evidence/11-zero-credentials.png" width="760" alt="No password value in the pod description"><br><em>No password value in the pod description</em></p>
 
 - **Dynamic credentials.** Each `vault read database/creds/api-service-role` returns a new username and password that expires in 1 hour.
 
-![Two reads, two different credentials, 1 h lease](docs/evidence/12-vault-dynamic-secrets.png)
-*Two reads, two different credentials, 1 h lease*
+<p align="center"><img src="docs/evidence/12-vault-dynamic-secrets.png" width="760" alt="Two reads, two different credentials, 1 h lease"><br><em>Two reads, two different credentials, 1 h lease</em></p>
 
 - **KV v2 rotation.** A secret was written as version 1 and then version 2 while pods stayed Running. No application reads this secret, so this shows versioning works, not that a live application survives rotation.
 
-![KV v2 version 1 to 2 with pods still Running](docs/evidence/13-secret-rotation.png)
-*KV v2 version 1 to 2 with pods still Running*
+<p align="center"><img src="docs/evidence/13-secret-rotation.png" width="760" alt="KV v2 version 1 to 2 with pods still Running"><br><em>KV v2 version 1 to 2 with pods still Running</em></p>
 
 - **Earlier documentation was wrong about the Vault database failure.** It blamed port-forwarding. The real cause was a missing `postgres-db` Service, which is now in `database.yaml`.
 - **Vault runs in dev mode.** It has a root token, no TLS and no persistence, so its configuration is lost on restart. Not production-ready.
@@ -254,8 +238,7 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - The October dashboard was imported through the Grafana API because the ConfigMap did not load.
 - The earlier "36 alert rules" was not supported by the repo, which defines **6 custom alerts**. Prometheus loads 140 alerting rules in total, including the stack's defaults.
 
-![6 custom alert rules, 140 alerting rules loaded in total](docs/evidence/05-alert-rules.png)
-*6 custom alert rules, 140 alerting rules loaded in total*
+<p align="center"><img src="docs/evidence/05-alert-rules.png" width="760" alt="6 custom alert rules, 140 alerting rules loaded in total"><br><em>6 custom alert rules, 140 alerting rules loaded in total</em></p>
 
 
 ## CI/CD status
@@ -264,8 +247,7 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - The deploy and rollback stages were **simulated with echo commands**, because a GitHub runner cannot reach a Minikube cluster inside a Codespace.
 - The "48 second" duration comes from that earlier run and has not been re-measured.
 
-![CI run from the original repository (earlier run, not re-verified)](docs/evidence/15-github-actions-green.png)
-*CI run from the original repository (earlier run, not re-verified)*
+<p align="center"><img src="docs/evidence/15-github-actions-green.png" width="760" alt="CI run from the original repository (earlier run, not re-verified)"><br><em>CI run from the original repository (earlier run, not re-verified)</em></p>
 
 
 ## Incidents
