@@ -36,8 +36,6 @@ Measured on a fresh rebuild in October 2026. Full detail: [docs/VERIFIED_RUN.md]
 | Prometheus | 21 scrape targets up, 0 down; 6 custom alerts, 140 alerting rules loaded in total | Measured |
 | CI pipeline | Workflow file not in this repo | **Not re-verified** |
 
-
-
 ## What was built
 | Area | Components |
 |---|---|
@@ -46,100 +44,26 @@ Measured on a fresh rebuild in October 2026. Full detail: [docs/VERIFIED_RUN.md]
 | Secrets (`vault`) | HashiCorp Vault in dev mode, Kubernetes auth, database secrets engine, KV v2 |
 | FinOps (`opencost`) | OpenCost with `team`, `cost-center`, `environment` labels on all deployments |
 
-<p align="center"><img src="docs/evidence/14-opencost-data.png" width="760" alt="OpenCost returning real per-pod cost from the allocation API"><br><em>OpenCost returning real per-pod cost from the allocation API</em></p>
-
 ## Architecture
 
 ### 1. Cluster topology
-```mermaid
-flowchart TB
-  subgraph HOST["GitHub Codespace: 4 cores, 16 GB, Docker driver"]
-    direction TB
-    subgraph CP["prod-sim: control plane"]
-      CPC["API server, scheduler, controller manager, etcd"]
-    end
-    subgraph W1["prod-sim-m02: worker"]
-      K1["kubelet, workload pods"]
-    end
-    subgraph W2["prod-sim-m03: worker"]
-      K2["kubelet, workload pods"]
-    end
-  end
-  CPC --> K1
-  CPC --> K2
-```
+<p align="center"><img src="docs/diagrams/01-topology.svg" alt="Cluster topology" width="860"></p>
 Each node is a Docker container on one machine, so this models Kubernetes behaviour, not multi-machine failure domains. Three nodes let one worker be lost while another remains to take the pods.
 
-<p align="center"><img src="docs/evidence/01-cluster-nodes.png" width="760" alt="Three nodes Ready on Kubernetes v1.31.0"><br><em>Three nodes Ready on Kubernetes v1.31.0</em></p>
-
-<p align="center"><img src="docs/evidence/02-namespaces.png" width="760" alt="Four platform namespaces Active"><br><em>Four platform namespaces Active</em></p>
-
-<p align="center"><img src="docs/evidence/03-all-pods-running.png" width="760" alt="All platform pods Running"><br><em>All platform pods Running</em></p>
-
 ### 2. Namespaces and data flow
-```mermaid
-flowchart LR
-  subgraph MS["namespace: microservices"]
-    FE["frontend, 2-6 replicas"]
-    API["api-service, 2-8 replicas"]
-    PG[("postgres-db")]
-    HPA["HPAs: CPU and memory targets"]
-  end
-  subgraph MON["namespace: monitoring"]
-    PROM["Prometheus"]
-    GRAF["Grafana: Golden Signals"]
-    AM["Alertmanager"]
-  end
-  subgraph VLT["namespace: vault"]
-    V["Vault, dev mode"]
-  end
-  subgraph OC["namespace: opencost"]
-    OCP["OpenCost"]
-  end
-  METRICS["metrics-server"] -->|CPU and memory| HPA
-  HPA -.->|scales| API
-  PROM -->|scrapes| API
-  PROM -->|scrapes| FE
-  PROM --> GRAF
-  PROM --> AM
-  OCP -->|reads usage| PROM
-  V -->|creates 1 h database roles| PG
-```
+<p align="center"><img src="docs/diagrams/02-data-flow.svg" alt="Namespaces and data flow" width="860"></p>
 No application currently reads Vault credentials. Vault proves dynamic credential generation against Postgres, not an application consuming them.
 
 ### 3. Node failure timeline
-```mermaid
-flowchart TB
-  A["t = 0: worker m02 stopped"] --> B["about 40 s: node controller marks the node NotReady"]
-  B --> C["not-ready taint applied: pods tolerate it for 300 s by default"]
-  C --> D["about 340 s: toleration expires, pods are evicted"]
-  D --> E["Scheduler places replacements on the surviving worker"]
-  E --> F["New pods Ready: 361 s measured"]
-```
+<p align="center"><img src="docs/diagrams/03-node-failure-timeline.svg" alt="Node failure timeline" width="860"></p>
 The timings are Kubernetes defaults and match the measured 361 s. Lowering `tolerationSeconds` on the deployments is the fix and is listed under Known gaps.
 
 ### 4. Bad deployment containment
-```mermaid
-flowchart LR
-  A["Set image to nonexistent tag"] --> B["New ReplicaSet, 1 new pod"]
-  B --> C{"Pod passes readiness?"}
-  C -->|"No: ErrImagePull"| D["maxUnavailable 0: old pods stay"]
-  D --> E["2 old pods keep serving"]
-  E --> F["Manual: kubectl rollout undo"]
-  F --> G["Previous ReplicaSet restored"]
-  C -->|Yes| H["Old pods replaced gradually"]
-```
+<p align="center"><img src="docs/diagrams/04-bad-deploy-containment.svg" alt="Bad deployment containment" width="860"></p>
 Containment is automatic. The rollback is a manual step.
 
 ### 5. CI/CD pipeline (not re-verified)
-```mermaid
-flowchart LR
-  P["Push"] --> V["validate"] --> C["deploy-canary"] --> VC["validate-canary"]
-  VC -->|fail| R["rollback"]
-  VC -->|pass| D["deploy-production"]
-  classDef unverified stroke-dasharray: 5 5
-  class V,C,VC,R,D unverified
-```
+<p align="center"><img src="docs/diagrams/05-ci-pipeline.svg" alt="CI/CD pipeline, not re-verified" width="860"></p>
 Dashed means not re-verified. The workflow file is not in this repository, and the deploy and rollback stages were simulated with echo commands.
 
 ### Components
@@ -165,13 +89,6 @@ Dashed means not re-verified. The workflow file is not in this repository, and t
 
 Full decision records: [docs/ADR.md](docs/ADR.md)
 
-
-
-
-
-
-
-
 ## Failure engineering
 Each test states a hypothesis, introduces a controlled failure, measures the result, and records what the test cannot prove.
 
@@ -183,18 +100,12 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - **Limit:** one run, no repeated trials. An earlier 20 s figure in this project's history was not reproduced.
 - **Next step:** lower `tolerationSeconds` for `node.kubernetes.io/not-ready` and `unreachable` on the deployments, then re-test.
 
-<p align="center"><img src="docs/evidence/09-node-recovery.png" width="760" alt="Node stopped; pods rescheduled after 361 s, so the 120 s target was missed"><br><em>Node stopped; pods rescheduled after 361 s, so the 120 s target was missed</em></p>
-
-
 ### Bad deployment
 - **Hypothesis:** a broken image never replaces healthy pods.
 - **Experiment:** set the api-service image to `kennethreitz/httpbin:this-tag-does-not-exist`.
 - **Observed:** the new pod entered ErrImagePull. The 2 old pods stayed Running and kept serving. `maxUnavailable: 0` blocks termination of old pods until a new pod is ready, and a broken image never becomes ready.
 - **Measured:** **30 s** from the bad image to a completed rollback. That includes a deliberate 30 s wait before running `kubectl rollout undo`.
 - **Limit:** the rollback was **issued by hand**. The test proves containment (zero blast radius), not automatic rollback.
-
-<p align="center"><img src="docs/evidence/10-bad-deploy-rollback.png" width="760" alt="Bad image stuck in ErrImagePull while 2 old pods kept serving; rollback in 30 s"><br><em>Bad image stuck in ErrImagePull while 2 old pods kept serving; rollback in 30 s</em></p>
-
 
 ### HPA traffic spike
 - **Hypothesis:** api-service scales from 2 to 8 pods above 60% CPU and returns to 2 when load stops.
@@ -203,30 +114,12 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - **Fix needed:** at the default memory request, memory stayed above the 70% target and held the HPA at 8 replicas even with CPU at 2%. The api-service memory request was raised to 128Mi (limit 256Mi). This is applied by `scripts/revive.sh` but is **not yet in `manifests/api-service.yaml`**.
 - **Limit:** the load is synthetic and uniform.
 
-<p align="center"><img src="docs/evidence/04-hpa-config.png" width="760" alt="HPA targets: api-service 2-8, frontend 2-6"><br><em>HPA targets: api-service 2-8, frontend 2-6</em></p>
-
-
-<p align="center"><img src="docs/evidence/06-hpa-before-load.png" width="760" alt="Baseline: 2 replicas, low CPU"><br><em>Baseline: 2 replicas, low CPU</em></p>
-
-
-<p align="center"><img src="docs/evidence/07-hpa-during-load.png" width="760" alt="Under load: CPU far above target, replicas scaled up"><br><em>Under load: CPU far above target, replicas scaled up</em></p>
-
-
-<p align="center"><img src="docs/evidence/08-hpa-scale-down.png" width="760" alt="After load removed: back to 2 replicas with no manual scaling"><br><em>After load removed: back to 2 replicas with no manual scaling</em></p>
-
-
 ## Security
 - **No credentials in pod descriptions.** `kubectl describe pod | grep -i password` returns nothing for api-service. postgres-db references `postgres-secret` by key only.
 
-<p align="center"><img src="docs/evidence/11-zero-credentials.png" width="760" alt="No password value in the pod description"><br><em>No password value in the pod description</em></p>
-
 - **Dynamic credentials.** Each `vault read database/creds/api-service-role` returns a new username and password that expires in 1 hour.
 
-<p align="center"><img src="docs/evidence/12-vault-dynamic-secrets.png" width="760" alt="Two reads, two different credentials, 1 h lease"><br><em>Two reads, two different credentials, 1 h lease</em></p>
-
 - **KV v2 rotation.** A secret was written as version 1 and then version 2 while pods stayed Running. No application reads this secret, so this shows versioning works, not that a live application survives rotation.
-
-<p align="center"><img src="docs/evidence/13-secret-rotation.png" width="760" alt="KV v2 version 1 to 2 with pods still Running"><br><em>KV v2 version 1 to 2 with pods still Running</em></p>
 
 - **Earlier documentation was wrong about the Vault database failure.** It blamed port-forwarding. The real cause was a missing `postgres-db` Service, which is now in `database.yaml`.
 - **Vault runs in dev mode.** It has a root token, no TLS and no persistence, so its configuration is lost on restart. Not production-ready.
@@ -238,17 +131,11 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - The October dashboard was imported through the Grafana API because the ConfigMap did not load.
 - The earlier "36 alert rules" was not supported by the repo, which defines **6 custom alerts**. Prometheus loads 140 alerting rules in total, including the stack's defaults.
 
-<p align="center"><img src="docs/evidence/05-alert-rules.png" width="760" alt="6 custom alert rules, 140 alerting rules loaded in total"><br><em>6 custom alert rules, 140 alerting rules loaded in total</em></p>
-
-
 ## CI/CD status
 - A GitHub Actions pipeline (validate, canary, validate-canary, rollback, deploy-production) ran earlier. Screenshot 15 shows that run in the original repository's Actions history.
 - **`.github/workflows/` is not in this repository** (lost during history rewrites), so the pipeline cannot currently be re-run or audited from this repo.
 - The deploy and rollback stages were **simulated with echo commands**, because a GitHub runner cannot reach a Minikube cluster inside a Codespace.
 - The "48 second" duration comes from that earlier run and has not been re-measured.
-
-<p align="center"><img src="docs/evidence/15-github-actions-green.png" width="760" alt="CI run from the original repository (earlier run, not re-verified)"><br><em>CI run from the original repository (earlier run, not re-verified)</em></p>
-
 
 ## Incidents
 | Incident | Root cause | Resolution | Verified by |
@@ -303,4 +190,6 @@ Why the fixes are needed: [docs/CODESPACE_RUNBOOK.md](docs/CODESPACE_RUNBOOK.md)
 | [CAPACITY_AND_COST.md](docs/CAPACITY_AND_COST.md) | Resource use and OpenCost results |
 
 ## Evidence
-Each screenshot sits next to the claim it supports. Files are in [`docs/evidence/`](docs/evidence/). Vault passwords are blurred. The CI screenshot is from an earlier run.
+Headline results are below. Every screenshot (17 in total) is listed with what it proves, the exact command and the expected result in the **[evidence index](docs/evidence/README.md)**. Vault passwords are blurred. The CI screenshot is from an earlier run.
+
+<table><tr><td width="50%" align="center"><a href="docs/evidence/09-node-recovery.png"><img src="docs/evidence/09-node-recovery.png" width="420" alt="Node failure: 361 s"></a><br><sub>Node failure: 361 s</sub></td><td width="50%" align="center"><a href="docs/evidence/10-bad-deploy-rollback.png"><img src="docs/evidence/10-bad-deploy-rollback.png" width="420" alt="Bad image contained, rollback 30 s"></a><br><sub>Bad image contained, rollback 30 s</sub></td></tr><tr><td width="50%" align="center"><a href="docs/evidence/07-hpa-during-load.png"><img src="docs/evidence/07-hpa-during-load.png" width="420" alt="HPA reacting to load"></a><br><sub>HPA reacting to load</sub></td><td width="50%" align="center"><a href="docs/evidence/12-vault-dynamic-secrets.png"><img src="docs/evidence/12-vault-dynamic-secrets.png" width="420" alt="Vault: new credentials every read"></a><br><sub>Vault: new credentials every read</sub></td></tr><tr></tr></table>
