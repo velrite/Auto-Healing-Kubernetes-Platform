@@ -79,6 +79,7 @@ ok "6. Workloads"
 for ns in microservices monitoring vault opencost; do kubectl create namespace $ns --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
 kubectl create secret generic postgres-secret --from-literal=POSTGRES_PASSWORD=apppassword --from-literal=POSTGRES_USER=appuser --from-literal=POSTGRES_DB=appdb -n microservices --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl apply -f manifests/ >/dev/null; kubectl apply -f database.yaml >/dev/null
+kubectl set resources deployment api-service -n microservices --requests=memory=128Mi --limits=memory=256Mi >/dev/null
 kubectl get svc postgres-db -n microservices >/dev/null 2>&1 || kubectl expose deployment postgres-db -n microservices --port=5432 --target-port=5432 --name=postgres-db
 kubectl rollout status deploy/postgres-db -n microservices --timeout=5m
 for d in api-service frontend postgres-db; do kubectl rollout status deploy/$d -n microservices --timeout=3m; done

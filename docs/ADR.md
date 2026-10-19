@@ -1,3 +1,5 @@
+> **Note:** Figures in this document come from the original build. The October 2026 re-run measured different values (node recovery 361 s, rollback 30 s, 6 custom alert rules). See [VERIFIED_RUN.md](VERIFIED_RUN.md).
+
 # Architecture Decision Records
 
 ---
