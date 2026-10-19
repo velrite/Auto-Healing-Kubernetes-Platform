@@ -36,6 +36,10 @@ Measured on a fresh rebuild in October 2026. Full detail: [docs/VERIFIED_RUN.md]
 | Prometheus | 21 scrape targets up, 0 down; 6 custom alerts, 140 alerting rules loaded in total | Measured |
 | CI pipeline | Workflow file not in this repo | **Not re-verified** |
 
+
+![OpenCost returning real per-pod cost from the allocation API](docs/evidence/14-opencost-data.png)
+*OpenCost returning real per-pod cost from the allocation API*
+
 ## What was built
 | Area | Components |
 |---|---|
@@ -58,6 +62,18 @@ Minikube cluster (3 nodes, Kubernetes v1.31.0)
 ~~~
 Three nodes are used so a worker can be lost while another remains to take the pods. With one node, a node failure is a total outage and the test would prove nothing.
 
+![Three nodes Ready on Kubernetes v1.31.0](docs/evidence/01-cluster-nodes.png)
+*Three nodes Ready on Kubernetes v1.31.0*
+
+
+![Four platform namespaces Active](docs/evidence/02-namespaces.png)
+*Four platform namespaces Active*
+
+
+![All platform pods Running](docs/evidence/03-all-pods-running.png)
+*All platform pods Running*
+
+
 ## Failure engineering
 Each test states a hypothesis, introduces a controlled failure, measures the result, and records what the test cannot prove.
 
@@ -69,12 +85,20 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - **Limit:** one run, no repeated trials. An earlier 20 s figure in this project's history was not reproduced.
 - **Next step:** lower `tolerationSeconds` for `node.kubernetes.io/not-ready` and `unreachable` on the deployments, then re-test.
 
+![Node stopped; pods rescheduled after 361 s, so the 120 s target was missed](docs/evidence/09-node-recovery.png)
+*Node stopped; pods rescheduled after 361 s, so the 120 s target was missed*
+
+
 ### Bad deployment
 - **Hypothesis:** a broken image never replaces healthy pods.
 - **Experiment:** set the api-service image to `kennethreitz/httpbin:this-tag-does-not-exist`.
 - **Observed:** the new pod entered ErrImagePull. The 2 old pods stayed Running and kept serving. `maxUnavailable: 0` blocks termination of old pods until a new pod is ready, and a broken image never becomes ready.
 - **Measured:** **30 s** from the bad image to a completed rollback. That includes a deliberate 30 s wait before running `kubectl rollout undo`.
 - **Limit:** the rollback was **issued by hand**. The test proves containment (zero blast radius), not automatic rollback.
+
+![Bad image stuck in ErrImagePull while 2 old pods kept serving; rollback in 30 s](docs/evidence/10-bad-deploy-rollback.png)
+*Bad image stuck in ErrImagePull while 2 old pods kept serving; rollback in 30 s*
+
 
 ### HPA traffic spike
 - **Hypothesis:** api-service scales from 2 to 8 pods above 60% CPU and returns to 2 when load stops.
@@ -83,10 +107,38 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - **Fix needed:** at the default memory request, memory stayed above the 70% target and held the HPA at 8 replicas even with CPU at 2%. The api-service memory request was raised to 128Mi (limit 256Mi). This is applied by `scripts/revive.sh` but is **not yet in `manifests/api-service.yaml`**.
 - **Limit:** the load is synthetic and uniform.
 
+![HPA targets: api-service 2-8, frontend 2-6](docs/evidence/04-hpa-config.png)
+*HPA targets: api-service 2-8, frontend 2-6*
+
+
+![Baseline: 2 replicas, low CPU](docs/evidence/06-hpa-before-load.png)
+*Baseline: 2 replicas, low CPU*
+
+
+![Under load: CPU far above target, replicas scaled up](docs/evidence/07-hpa-during-load.png)
+*Under load: CPU far above target, replicas scaled up*
+
+
+![After load removed: back to 2 replicas with no manual scaling](docs/evidence/08-hpa-scale-down.png)
+*After load removed: back to 2 replicas with no manual scaling*
+
+
 ## Security
 - **No credentials in pod descriptions.** `kubectl describe pod | grep -i password` returns nothing for api-service. postgres-db references `postgres-secret` by key only.
+
+![No password value in the pod description](docs/evidence/11-zero-credentials.png)
+*No password value in the pod description*
+
 - **Dynamic credentials.** Each `vault read database/creds/api-service-role` returns a new username and password that expires in 1 hour.
+
+![Two reads, two different credentials, 1 h lease](docs/evidence/12-vault-dynamic-secrets.png)
+*Two reads, two different credentials, 1 h lease*
+
 - **KV v2 rotation.** A secret was written as version 1 and then version 2 while pods stayed Running. No application reads this secret, so this shows versioning works, not that a live application survives rotation.
+
+![KV v2 version 1 to 2 with pods still Running](docs/evidence/13-secret-rotation.png)
+*KV v2 version 1 to 2 with pods still Running*
+
 - **Earlier documentation was wrong about the Vault database failure.** It blamed port-forwarding. The real cause was a missing `postgres-db` Service, which is now in `database.yaml`.
 - **Vault runs in dev mode.** It has a root token, no TLS and no persistence, so its configuration is lost on restart. Not production-ready.
 - **Not implemented:** NetworkPolicies, Pod Security Standards, image signing, admission control. Kubernetes Secrets are base64-encoded, not encrypted.
@@ -97,11 +149,19 @@ Each test states a hypothesis, introduces a controlled failure, measures the res
 - The October dashboard was imported through the Grafana API because the ConfigMap did not load.
 - The earlier "36 alert rules" was not supported by the repo, which defines **6 custom alerts**. Prometheus loads 140 alerting rules in total, including the stack's defaults.
 
+![6 custom alert rules, 140 alerting rules loaded in total](docs/evidence/05-alert-rules.png)
+*6 custom alert rules, 140 alerting rules loaded in total*
+
+
 ## CI/CD status
 - A GitHub Actions pipeline (validate, canary, validate-canary, rollback, deploy-production) ran earlier. Screenshot 15 shows that run in the original repository's Actions history.
 - **`.github/workflows/` is not in this repository** (lost during history rewrites), so the pipeline cannot currently be re-run or audited from this repo.
 - The deploy and rollback stages were **simulated with echo commands**, because a GitHub runner cannot reach a Minikube cluster inside a Codespace.
 - The "48 second" duration comes from that earlier run and has not been re-measured.
+
+![CI run from the original repository (earlier run, not re-verified)](docs/evidence/15-github-actions-green.png)
+*CI run from the original repository (earlier run, not re-verified)*
+
 
 ## Incidents
 | Incident | Root cause | Resolution | Verified by |
@@ -156,50 +216,4 @@ Why the fixes are needed: [docs/CODESPACE_RUNBOOK.md](docs/CODESPACE_RUNBOOK.md)
 | [CAPACITY_AND_COST.md](docs/CAPACITY_AND_COST.md) | Resource use and OpenCost results |
 
 ## Evidence
-All screenshots are from the October 2026 run except the CI screenshot (earlier run). Vault passwords are blurred.
-
-### Cluster: 3 nodes Ready
-![Cluster: 3 nodes Ready](docs/evidence/01-cluster-nodes.png)
-
-### Platform namespaces
-![Platform namespaces](docs/evidence/02-namespaces.png)
-
-### All platform pods Running
-![All platform pods Running](docs/evidence/03-all-pods-running.png)
-
-### HPA configuration
-![HPA configuration](docs/evidence/04-hpa-config.png)
-
-### Alert rules
-![Alert rules](docs/evidence/05-alert-rules.png)
-
-### HPA before load
-![HPA before load](docs/evidence/06-hpa-before-load.png)
-
-### HPA during load
-![HPA during load](docs/evidence/07-hpa-during-load.png)
-
-### HPA scale-down
-![HPA scale-down](docs/evidence/08-hpa-scale-down.png)
-
-### Node failure recovery (361 s)
-![Node failure recovery (361 s)](docs/evidence/09-node-recovery.png)
-
-### Bad deployment contained and rolled back
-![Bad deployment contained and rolled back](docs/evidence/10-bad-deploy-rollback.png)
-
-### No credentials in pod description
-![No credentials in pod description](docs/evidence/11-zero-credentials.png)
-
-### Vault dynamic credentials
-![Vault dynamic credentials](docs/evidence/12-vault-dynamic-secrets.png)
-
-### KV v2 secret rotation
-![KV v2 secret rotation](docs/evidence/13-secret-rotation.png)
-
-### OpenCost per-pod cost
-![OpenCost per-pod cost](docs/evidence/14-opencost-data.png)
-
-### CI run (earlier run, original repo)
-![CI run (earlier run, original repo)](docs/evidence/15-github-actions-green.png)
-
+Each screenshot sits next to the claim it supports. Files are in [`docs/evidence/`](docs/evidence/). Vault passwords are blurred. The CI screenshot is from an earlier run.
