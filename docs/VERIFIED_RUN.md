@@ -15,7 +15,7 @@ Screenshots are in `docs/evidence/`. Where a number differs from earlier documen
 | HPA baseline | 2 replicas, CPU 2% | 06-hpa-before-load.png |
 | HPA under load | CPU 366% of request, replicas 2 to 8 | 07-hpa-during-load.png |
 | HPA scale-down | Back to 2 replicas without manual scaling | 08-hpa-scale-down.png |
-| Node failure | Recovery in 361 seconds (SLO: under 120s) | 09-node-recovery.png |
+| Node failure | Recovery in 361 seconds. The 120s SLO was NOT met: Kubernetes waits about 5 minutes by default before evicting pods from a dead node. The earlier 20s claim was not reproduced | 09-node-recovery.png |
 | Bad deploy | New pod ErrImagePull, 2 old pods kept Running, rolled back in 30 seconds | 10-bad-deploy-rollback.png |
 | Zero credentials | No password value in pod description | 11-zero-credentials.png |
 | Vault dynamic secrets | Different username and password on each read, 1h TTL | 12-vault-dynamic-secrets.png |

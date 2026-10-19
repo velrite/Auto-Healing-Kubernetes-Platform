@@ -27,11 +27,11 @@ Every number here came from a real test with real terminal output. Nothing was s
 
 | Test | Result | Status |
 |------|--------|--------|
-| Kubernetes node failure | 20 second recovery | Verified |
-| Bad image deployment rollback | 32 seconds | Verified |
+| Kubernetes node failure | 361 seconds (SLO of 120s not met, see docs/VERIFIED_RUN.md) | Verified |
+| Bad image deployment rollback | 30 seconds | Verified |
 | Rollback blast radius | 0 pods affected | Verified |
 | API autoscaling under load | 2 → 8 pods | Verified |
-| Peak CPU during scaling test | 86% | Verified |
+| Peak CPU during scaling test | 366% of CPU request | Verified |
 | Post-load scale-down | 8 → 2 pods | Verified |
 | CPU after load removed | 2% | Verified |
 | CI pipeline duration | 48 seconds | Verified |
@@ -87,7 +87,7 @@ The recovery test required a real multi-node cluster to mean anything.
                     │                                  │
                     │  ┌────────────────────────────┐  │
                     │  │  namespace: monitoring      │  │
-                    │  │  Prometheus  (36 rules)     │  │
+                    │  │  Prometheus  (6 custom)     │  │
                     │  │  Grafana  (Golden Signals)  │  │
                     │  │  Alertmanager               │  │
                     │  └────────────────────────────┘  │
@@ -133,9 +133,9 @@ This is documented because "it worked" is not an engineering finding. The condit
 
 **Observed:** Pods rescheduled to `prod-sim-m03`. No manual command was issued to trigger this.
 
-**Measured recovery:** 20 seconds.
+**Measured recovery:** 361 seconds.
 
-**Outcome:** SLO met.
+**Outcome:** The 120s SLO was NOT met. Kubernetes waits about 5 minutes by default before evicting pods from a dead node.
 
 [SCREENSHOT: docs/evidence/09-node-recovery.png]
 
@@ -151,7 +151,7 @@ This is documented because "it worked" is not an engineering finding. The condit
 
 **Why zero blast radius:** `maxUnavailable: 0` prevents terminating old pods until new pods pass readiness. Broken images never pass readiness. Old pods are therefore never terminated.
 
-**Measured rollback:** 32 seconds.
+**Measured rollback:** 30 seconds.
 
 **Blast radius:** 0 pods affected.
 
@@ -167,7 +167,7 @@ This is documented because "it worked" is not an engineering finding. The condit
 
 **Experiment:** 3 parallel busybox load generators sending continuous requests to api-service.
 
-**Observed scale-up:** CPU reached 86%, replica count reached 8.
+**Observed scale-up:** CPU reached 366% of request, replica count reached 8.
 
 **Observed scale-down:** CPU returned to 2%, replicas returned to 2 automatically.
 
@@ -191,7 +191,7 @@ This is documented because "it worked" is not an engineering finding. The condit
 
 **Outcome:** Verified.
 
-**Note on database engine:** The database secrets engine was configured but could not resolve `postgres-db.microservices.svc.cluster.local` because Vault was accessed via port-forward from outside the cluster. KV v2 rotation was used as the working alternative and is documented in [TESTING_AND_VALIDATION.md](docs/TESTING_AND_VALIDATION.md).
+**Note on database engine:** Earlier versions of this README blamed port-forwarding. The real cause was a missing `postgres-db` Service. Fixed in this repo; see docs/VERIFIED_RUN.md.
 
 [SCREENSHOT: docs/evidence/12-vault-dynamic-secrets.png]
 [SCREENSHOT: docs/evidence/13-secret-rotation.png]
@@ -208,7 +208,7 @@ This is documented because "it worked" is not an engineering finding. The condit
 - ResourceQuota — max 20 pods, 8 CPU cores, 8Gi memory per namespace
 
 ### Monitoring (namespace: monitoring)
-- Prometheus — 36 alert rules applied from `monitoring/alert-rules.yaml`
+- Prometheus — 6 custom alert rules (140 loaded in total) applied from `monitoring/alert-rules.yaml`
 - Grafana — Golden Signals dashboard (Traffic, Error Rate, Latency P99, Saturation)
 - Alertmanager — alert routing configured
 
@@ -269,7 +269,7 @@ These are real problems encountered during the build — not hidden, not smoothe
 | Cluster | Minikube 3-node | Free. Identical behavior to production k8s |
 | CI/CD | GitHub Actions | 5-stage pipeline. 2000 free minutes/month |
 | Secrets | HashiCorp Vault | Dynamic credentials. No static passwords |
-| Monitoring | Prometheus + Grafana | 36 alert rules. Golden Signals dashboard |
+| Monitoring | Prometheus + Grafana | 6 custom alert rules (140 loaded in total). Golden Signals dashboard |
 | Cost | OpenCost | Real-time cost per service and namespace |
 | Environment | GitHub Codespaces | Free 60hrs/month. 8GB RAM |
 
