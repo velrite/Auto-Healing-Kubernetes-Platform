@@ -49,17 +49,122 @@ Measured on a fresh rebuild in October 2026. Full detail: [docs/VERIFIED_RUN.md]
 | FinOps (`opencost`) | OpenCost with `team`, `cost-center`, `environment` labels on all deployments |
 
 ## Architecture
-~~~
-Minikube cluster (3 nodes, Kubernetes v1.31.0)
-  prod-sim        control-plane
-  prod-sim-m02    worker
-  prod-sim-m03    worker
 
-  namespace microservices : api-service, frontend, postgres-db
-  namespace monitoring    : Prometheus, Alertmanager, Grafana
-  namespace vault         : Vault (dev mode)
-  namespace opencost      : OpenCost
-~~~
+### 1. Cluster topology
+```mermaid
+flowchart TB
+  subgraph HOST["GitHub Codespace: 4 cores, 16 GB, Docker driver"]
+    direction TB
+    subgraph CP["prod-sim: control plane"]
+      CPC["API server, scheduler, controller manager, etcd"]
+    end
+    subgraph W1["prod-sim-m02: worker"]
+      K1["kubelet, workload pods"]
+    end
+    subgraph W2["prod-sim-m03: worker"]
+      K2["kubelet, workload pods"]
+    end
+  end
+  CPC --> K1
+  CPC --> K2
+```
+Each node is a Docker container on one machine, so this models Kubernetes behaviour, not multi-machine failure domains. Three nodes let one worker be lost while another remains to take the pods.
+
+### 2. Namespaces and data flow
+```mermaid
+flowchart LR
+  subgraph MS["namespace: microservices"]
+    FE["frontend, 2-6 replicas"]
+    API["api-service, 2-8 replicas"]
+    PG[("postgres-db")]
+    HPA["HPAs: CPU and memory targets"]
+  end
+  subgraph MON["namespace: monitoring"]
+    PROM["Prometheus"]
+    GRAF["Grafana: Golden Signals"]
+    AM["Alertmanager"]
+  end
+  subgraph VLT["namespace: vault"]
+    V["Vault, dev mode"]
+  end
+  subgraph OC["namespace: opencost"]
+    OCP["OpenCost"]
+  end
+  METRICS["metrics-server"] -->|CPU and memory| HPA
+  HPA -.->|scales| API
+  PROM -->|scrapes| API
+  PROM -->|scrapes| FE
+  PROM --> GRAF
+  PROM --> AM
+  OCP -->|reads usage| PROM
+  V -->|creates 1 h database roles| PG
+```
+No application currently reads Vault credentials. Vault proves dynamic credential generation against Postgres, not an application consuming them.
+
+### 3. Node failure timeline
+```mermaid
+sequenceDiagram
+  participant N as Worker m02
+  participant NC as Node controller
+  participant P as Pods on m02
+  participant S as Scheduler
+  N->>N: Stopped (t = 0)
+  NC->>NC: No heartbeat, about 40 s grace period
+  NC->>P: Node NotReady, not-ready taint applied
+  Note over P: Pods tolerate the taint for 300 s by default
+  NC->>P: Evict after toleration expires (about 340 s)
+  S->>S: Reschedule on surviving worker
+  S-->>P: New pods Ready (measured 361 s)
+```
+The timings are Kubernetes defaults and match the measured 361 s. Lowering `tolerationSeconds` on the deployments is the fix and is listed under Known gaps.
+
+### 4. Bad deployment containment
+```mermaid
+flowchart LR
+  A["Set image to nonexistent tag"] --> B["New ReplicaSet, 1 new pod"]
+  B --> C{"Pod passes readiness?"}
+  C -->|"No: ErrImagePull"| D["maxUnavailable 0: old pods stay"]
+  D --> E["2 old pods keep serving"]
+  E --> F["Manual: kubectl rollout undo"]
+  F --> G["Previous ReplicaSet restored"]
+  C -->|Yes| H["Old pods replaced gradually"]
+```
+Containment is automatic. The rollback is a manual step.
+
+### 5. CI/CD pipeline (not re-verified)
+```mermaid
+flowchart LR
+  P["Push"] --> V["validate"] --> C["deploy-canary"] --> VC["validate-canary"]
+  VC -->|fail| R["rollback"]
+  VC -->|pass| D["deploy-production"]
+  classDef unverified stroke-dasharray: 5 5
+  class V,C,VC,R,D unverified
+```
+Dashed means not re-verified. The workflow file is not in this repository, and the deploy and rollback stages were simulated with echo commands.
+
+### Components
+| Component | Role | Depends on | If it fails |
+|---|---|---|---|
+| Control plane | Scheduling, reconciliation, API | Docker network | Existing pods keep running, no new scheduling or healing |
+| Worker nodes | Run workload pods | Control plane, node internet for image pulls | Pods rescheduled after the eviction delay (361 s measured) |
+| api-service | Autoscaled demo backend | metrics-server, memory request set to 128Mi | HPA stops scaling if metrics are missing |
+| postgres-db | Database for Vault role creation | `postgres-secret`, `postgres-db` Service | Vault database engine cannot create credentials |
+| Prometheus | Metrics and alert evaluation | ServiceMonitors, `release: prometheus` label on rules | No alerts, OpenCost has no data |
+| Grafana | Dashboards | Prometheus datasource | Visibility lost, platform unaffected |
+| Vault (dev mode) | Dynamic credentials, KV v2 | postgres-db | Configuration lost on restart |
+| OpenCost | Cost per pod and namespace | Prometheus | No cost data |
+
+### Design decisions
+| Decision | Reason | Trade-off |
+|---|---|---|
+| 3 nodes, not 1 | A node-failure test needs somewhere to reschedule | More memory, slower start |
+| Vault dev mode | No unseal step per Codespace restart | No persistence, no TLS |
+| OpenCost, not Kubecost | Kubecost failed on storage permissions and bundled its own Prometheus | Less UI, same cost model |
+| Fewer scrape targets | Minikube does not expose etcd, scheduler, controller-manager or kube-proxy | Control-plane internals unmonitored |
+| Pinned minikube 1.34.0 | v1.39 control plane never became Ready here | Older tooling |
+
+Full decision records: [docs/ADR.md](docs/ADR.md)
+
 Three nodes are used so a worker can be lost while another remains to take the pods. With one node, a node failure is a total outage and the test would prove nothing.
 
 ![Three nodes Ready on Kubernetes v1.31.0](docs/evidence/01-cluster-nodes.png)
