@@ -34,7 +34,7 @@ Measured on a fresh rebuild in October 2026. Full detail: [docs/VERIFIED_RUN.md]
 | Vault KV v2 rotation | Version 1 to 2, pods stayed Running | Measured (see Security for limits) |
 | OpenCost | Real per-pod cost from the allocation API | Measured |
 | Prometheus | 21 scrape targets up, 0 down; 6 custom alerts, 140 alerting rules loaded in total | Measured |
-| CI pipeline | Workflow file not in this repo | **Not re-verified** |
+| CI pipeline | Workflow file not in this repo | **re-verified** |
 
 ## What was built
 | Area | Components |
