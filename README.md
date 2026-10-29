@@ -2,8 +2,7 @@
 
 A 3-node Kubernetes reference platform built to answer one question: **what happens when things fail, and how much of the recovery needs a human?** It covers node loss, a bad deployment, a traffic spike, secret handling, observability and cost visibility, with every result measured and every gap documented.
 
-**Author:** Olamide Olalekan, Platform & DevSecOps Engineer
-[GitHub](https://github.com/velrite) | [LinkedIn](https://linkedin.com/in/olamide-olalekan-12138a265) | velrite.tech@gmail.com
+
 
 > **Environment:** Minikube on a single GitHub Codespace (3 Docker containers acting as nodes). This is a lab platform. It shows how Kubernetes behaves, not how a multi-machine production cluster performs.
 
